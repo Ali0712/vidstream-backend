@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { User } from "../models/User.model.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 
 const generateAccessTokenAndRefreshToken = async (userID) => {
@@ -38,8 +39,8 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new ApiError(409, "User already exists")
     }
 
-    const avatarLocalPath = req.files?.avatar[0].path;
-    const coverImageLocalPath = req.files?.coverImage[0].path;
+    const avatarLocalPath = req.files?.avatar?.[0]?.path;
+    const coverImageLocalPath = req.files?.coverImage?.[0]?.path;
 
     if (!avatarLocalPath) {
         throw new ApiError(400, "Avatar file is required 1")
@@ -169,6 +170,68 @@ const getCurrentUser = asyncHandler(async(req, res)=>{
     return res.status(200).json(new ApiResponse(200, req.user, "user fetched successfully"))
 })
 
+const updateUserDetails = asyncHandler(async(req, res)=>{
+    const {fullName} = req.body;
+    if (!fullName){
+        throw new ApiError(400, "Full name is required")
+    }
+    const user = await User.findByIdAndUpdate(req.user._id, {
+        $set: {fullName}
+    },{
+        new: true
+    }).select("-password -refreshToken")
+
+    return res.status(200)
+        .json(new ApiResponse(200, user, "User details updated successfully"))
+
+})
+
+const getWatchHistory = asyncHandler(async(req, res)=>{
+    const user = await User.aggregate([
+        {
+            $match: {
+                _id: new mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup:{
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline:[
+                    {
+                        $lookup:{
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline:[
+                                {
+                                    $project:{
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1
+
+                                    }
+                                }
+                            ]
+                        }   
+                    },
+                    {
+                        $addFields:{
+                            owner: {
+                                $first: "$owner"
+                        
+                            }
+                    }}
+                ]
+                
+            }
+        }
+    ])
+    return res.status(200).json(new ApiResponse(200, user[0].watchHistory, "Watch history fetched successfully"))  
+})
 
 export { 
     registerUser, 
@@ -176,5 +239,7 @@ export {
     logoutUser, 
     refreshAccessToken,
     changeCurrentPassword,
-    getCurrentUser
+    getCurrentUser,
+    updateUserDetails,
+    getWatchHistory
 }
